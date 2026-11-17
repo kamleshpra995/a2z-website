@@ -1,0 +1,30 @@
+{
+  "name": "@a2z/server",
+  "version": "1.3.0",
+  "private": true,
+  "type": "module",
+  "description": "A2Z Service Desk API (Express + MongoDB). Runs TypeScript directly on Node.js 22.18+.",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "dev": "node --watch src/index.ts",
+    "start": "node src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "import:browser": "node scripts/import-browser.ts",
+    "account:password": "node scripts/seed-accounts.ts"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "mongoose": "^8.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^22.19.0",
+    "jsqr": "^1.4.0",
+    "qrcode": "^1.5.4",
+    "@types/qrcode": "^1.5.6",
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,41 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { paginate, pageButtons } from './pagination.ts';
+const records = Array.from({ length: 27 }, (_, index) => ({ id: `ticket-${index + 1}` }));
+test('ticket pagination defaults to ten records and preserves record order across pages', () => {
+  const first = paginate(records);
+  assert.equal(first.records.length, 10);
+  assert.equal(first.pages, 3);
+  assert.equal(first.start, 1);
+  assert.equal(first.end, 10);
+  assert.equal(first.records[0]?.id, 'ticket-1');
+  const second = paginate(records, 2);
+  assert.equal(second.records.length, 10);
+  assert.equal(second.records[0]?.id, 'ticket-11');
+  assert.equal(second.end, 20);
+  const last = paginate(records, 3);
+  assert.equal(last.records.length, 7);
+  assert.equal(last.start, 21);
+  assert.equal(last.end, 27);
+  assert.equal(records.length, 27);
+});
+test('filtered/empty/shrinking lists clamp page bounds and selectable sizes work', () => {
+  const filtered = paginate(records.slice(0, 2), 3);
+  assert.equal(filtered.page, 1);
+  assert.equal(filtered.total, 2);
+  assert.equal(filtered.records.length, 2);
+  const empty = paginate([], 10);
+  assert.equal(empty.page, 1);
+  assert.equal(empty.pages, 1);
+  assert.equal(empty.start, 0);
+  assert.equal(empty.end, 0);
+  assert.equal(paginate(records, 1, 25).records.length, 25);
+  assert.equal(paginate(records, 1, 50).records.length, 27);
+  assert.equal(paginate(records, -1, 0).pageSize, 10);
+});
+test('page buttons stay compact and include both ends and the current page', () => {
+  assert.deepEqual(pageButtons(1, 1), [1]);
+  assert.deepEqual(pageButtons(1, 3), [1, 2, 3]);
+  assert.deepEqual(pageButtons(50, 100), [1, '…', 49, 50, 51, '…', 100]);
+  assert.deepEqual(pageButtons(1, 100), [1, 2, '…', 100]);
+});

@@ -1,0 +1,8 @@
+node_modules/
+webapp/dist/
+package-lock.json
+.env
+.env.*
+!.env.example
+server/uploads/
+server/scripts/export-browser.js

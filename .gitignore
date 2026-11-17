@@ -1,0 +1,24 @@
+# Dependencies and build output
+node_modules/
+webapp/dist/
+*.tsbuildinfo
+
+# Secrets and server data (never commit)
+.env
+.env.*
+!.env.example
+server/uploads/
+server/data/
+a2z-browser-export*.json
+
+# Logs and OS / editor files
+npm-debug.log*
+preview*.log
+.npm-cache/
+.DS_Store
+.vscode/
+.idea/
+
+# Local-only folders
+Claude outputs/
+_to_delete/
