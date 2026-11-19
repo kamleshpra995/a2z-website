@@ -9,14 +9,8 @@ import {
   publicAttachment,
 } from '../domain/conversations.ts';
 import { applyAction } from '../domain/actions.ts';
-import {
-  register,
-  login,
-  getUser,
-  logout,
-  viewState,
-  authenticatedAction,
-} from '../domain/auth.ts';
+import { login, getUser, logout, viewState, authenticatedAction } from '../domain/auth.ts';
+import { snapshotTickets, ticketEvents, type TicketEvent } from '../domain/ticketEmails.ts';
 import type { AttachmentStore } from '../storage/attachments.ts';
 import type { Attachment, Payload, PublicUser, Ticket, WorkspaceState } from '../shared/types.ts';
 
@@ -24,8 +18,12 @@ export interface ApiOptions {
   load: () => Promise<WorkspaceState>;
   save: (state: WorkspaceState) => Promise<void>;
   available?: boolean;
+  /** Shown to API callers when the database is not available. */
+  unavailableMessage?: string;
   cookieSecure?: boolean;
   attachmentStore?: AttachmentStore;
+  /** Called after a saved change created, assigned or changed the status of tickets. */
+  onTicketEvents?: (state: WorkspaceState, events: TicketEvent[]) => void;
 }
 
 type MutationHandler = (state: WorkspaceState, req: Request, res: Response) => Promise<void>;
@@ -38,13 +36,15 @@ export function createApiRouter({
   load,
   save,
   available = true,
+  unavailableMessage = 'Database is not configured. Set MONGODB_URI on the server.',
   cookieSecure = false,
   attachmentStore,
+  onTicketEvents,
 }: ApiOptions): express.Router {
   const router = express.Router();
   router.use((req, res, next) => {
     if (!available) {
-      res.status(503).json({ error: 'Database is not configured. Set MONGODB_URI on the server.' });
+      res.status(503).json({ error: unavailableMessage });
       return;
     }
     res.set('Cache-Control', 'no-store');
@@ -87,7 +87,17 @@ export function createApiRouter({
     return (req: Request, res: Response, next: NextFunction) => {
       const operation = queue.then(async () => {
         const state = await load();
+        const before = snapshotTickets(state);
         await handler(state, req, res);
+        // Handlers save before responding; a failed change throws and never reaches this point.
+        const events = res.statusCode < 400 ? ticketEvents(before, state) : [];
+        if (events.length && onTicketEvents) {
+          try {
+            onTicketEvents(state, events);
+          } catch (error) {
+            console.error(`Ticket notifications failed: ${(error as Error).message}`);
+          }
+        }
       });
       queue = operation.catch(() => {});
       operation.catch(next);
@@ -121,7 +131,8 @@ export function createApiRouter({
     return attachmentStore;
   }
 
-  // Auth routes: restore session, register, log in and log out.
+  // Auth routes: restore session, log in and log out. There is no public sign-up: Admin
+  // creates every account from the Users screen.
   router.get('/auth/session', async (req, res, next) => {
     try {
       const state = await load();
@@ -134,16 +145,6 @@ export function createApiRouter({
       next(e);
     }
   });
-  router.post(
-    '/auth/register',
-    limitAuthAttempts,
-    serializeMutation(async (state, req, res) => {
-      validateFields(body(req));
-      const user = await register(state, body(req));
-      await save(state);
-      res.status(201).json({ user });
-    }),
-  );
   router.post(
     '/auth/login',
     limitAuthAttempts,

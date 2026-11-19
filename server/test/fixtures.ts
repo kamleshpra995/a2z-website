@@ -21,3 +21,18 @@ export function actionRunner(state: WorkspaceState) {
   return <T extends ActionType>(user: Actor, type: T, payload: Payload) =>
     authenticatedAction(state, user, type, payload, applyAction);
 }
+
+/** Admin creates a login. Customers are linked to a client company, created here if missing. */
+export async function addAccount(
+  state: WorkspaceState,
+  admin: Actor,
+  account: { name: string; email: string; password: string; role: string; company?: string },
+) {
+  const { company, ...payload } = account;
+  let clientId: string | undefined;
+  if (company) {
+    const existing = state.clients.find((client) => client.name === company);
+    clientId = existing?.id ?? applyAction(state, 'client', { name: company }).id;
+  }
+  return authenticatedAction(state, admin, 'user', { ...payload, clientId }, applyAction);
+}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, type ComponentType, type FormEvent } from 'react';
+import { useState, useEffect, useMemo, useRef, type ComponentType, type FormEvent } from 'react';
 import {
   LayoutDashboard,
   Building2,
@@ -76,6 +76,42 @@ export default function App() {
   const [filter, setFilter] = useState<TicketFilter>('All');
   const [notice, setNotice] = useState(false);
   const [mobile, setMobile] = useState(false);
+  // What the open form looked like when it opened, to tell whether the user has typed anything.
+  const baseline = useRef('');
+  const startForm = (value: FormState) => {
+    baseline.current = JSON.stringify(value);
+    setForm(value);
+  };
+  const hasUnsavedInput = () => {
+    if (!modal || modal === 'storeQr') return false;
+    // The ticket detail itself is read-only; its conversation box holds the user's draft.
+    if (modal === 'detail') {
+      const note = document.querySelector<HTMLTextAreaElement>(
+        '.modal textarea[aria-label="Conversation message"]',
+      );
+      return !!note?.value.trim();
+    }
+    return JSON.stringify(form) !== baseline.current;
+  };
+  /** Close the open dialog, asking first if that would throw away what the user typed. */
+  const requestClose = () => {
+    if (hasUnsavedInput() && !window.confirm('Discard the details you entered?')) return;
+    setModal(null);
+  };
+  const closeRef = useRef(requestClose);
+  closeRef.current = requestClose;
+  const unsavedRef = useRef(hasUnsavedInput);
+  unsavedRef.current = hasUnsavedInput;
+  useEffect(() => {
+    // A browser back-swipe, refresh or tab close would lose the form: let the browser warn first.
+    const warn = (event: BeforeUnloadEvent) => {
+      if (!unsavedRef.current()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
   const signedIn = (user: PublicUser) => {
     startSession(user);
     setPage('Overview');
@@ -99,7 +135,7 @@ export default function App() {
   useEffect(() => {
     const escape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setModal(null);
+        closeRef.current();
         setNotice(false);
       }
     };
@@ -143,7 +179,7 @@ export default function App() {
   };
   const open: OpenDialog = (type, initial = {}) => {
     setModal(type);
-    setForm(
+    startForm(
       type === 'client'
         ? { active: true, addedOn: '', ...initial }
         : type === 'store'
@@ -177,7 +213,7 @@ export default function App() {
       });
       const result = (response as { result?: { id?: string } }).result;
       if (type === 'user' && typeof payload.returnTicketId === 'string' && result?.id) {
-        setForm({ ticketId: payload.returnTicketId, workerId: result.id });
+        startForm({ ticketId: payload.returnTicketId, workerId: result.id });
         setModal('assign');
       } else setModal(null);
       if (message) setToast(message);
@@ -224,7 +260,7 @@ export default function App() {
     'Field workers': 'Field worker master',
     Clients: isClient ? 'Your clients' : 'Client master',
     Stores: isClient ? 'Your stores' : 'Store master',
-    'Internal users': 'Your team',
+    'Internal users': 'Users & logins',
     Tickets: 'Service tickets',
     Invoices: 'Invoice management',
   };
@@ -268,7 +304,9 @@ export default function App() {
                   ? 'Client master'
                   : p === 'Stores' && canManageMasters
                     ? 'Store master'
-                    : p}
+                    : p === 'Internal users'
+                      ? 'Users & logins'
+                      : p}
                 {p === 'Tickets' && pending > 0 && <span className="nav-count">{pending}</span>}
               </button>
             ))}
@@ -299,7 +337,7 @@ export default function App() {
             </button>
             <span>Workspace</span>
             <ChevronRight size={14} />
-            <strong>{page}</strong>
+            <strong>{page === 'Internal users' ? 'Users & logins' : page}</strong>
           </div>
           <div className="header-actions">
             <span className="demo-tag">{roleLabel(current?.role)?.toUpperCase()}</span>
@@ -397,7 +435,7 @@ export default function App() {
             ) : page === 'Internal users' && current?.role === 'Admin' ? (
               <button className="primary" onClick={() => open('user')}>
                 <Plus size={18} />
-                Add internal user
+                Add user
               </button>
             ) : null}
           </div>
@@ -481,6 +519,7 @@ export default function App() {
               isAdmin={isAdmin}
               busy={busy}
               action={action}
+              edit={(account) => open('user', { ...account, password: '' })}
             />
           )}
           {page === 'Invoices' && (
@@ -507,6 +546,7 @@ export default function App() {
       <WorkspaceDialog
         modal={modal}
         setModal={setModal}
+        requestClose={requestClose}
         form={
           modal === 'detail'
             ? { ...form, ...(data.tickets.find((ticket) => ticket.id === form.id) || {}) }

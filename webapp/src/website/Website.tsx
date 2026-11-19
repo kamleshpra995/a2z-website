@@ -29,10 +29,16 @@ function Header() {
           <a href="#why">Why Us</a>
           <a href="#contact">Contact</a>
         </nav>
-        <a className="call-btn" href={`tel:${business.phone}`}>
-          <Icon name="phone" width="15" height="15" fill="currentColor" />
-          Call Now
-        </a>
+        <div className="nav-actions">
+          <a className="login-btn" href={business.portal} title="Customer & staff login">
+            <Icon name="user" width="15" height="15" fill="currentColor" />
+            Login
+          </a>
+          <a className="call-btn" href={`tel:${business.phone}`} aria-label="Call now">
+            <Icon name="phone" width="15" height="15" fill="currentColor" />
+            <span className="btn-label">Call Now</span>
+          </a>
+        </div>
       </div>
     </header>
   );
@@ -238,6 +244,10 @@ function Footer({ year }: { year: number }) {
         <div>
           <strong>{business.name}</strong> · {business.tagline}
           <br />© <span id="yr">{year}</span> {business.name}. All rights reserved.
+          <br />
+          <a className="portal-link" href={business.portal}>
+            Customer &amp; staff login →
+          </a>
         </div>
         <div className="reg">
           <span>

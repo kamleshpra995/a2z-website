@@ -1007,6 +1007,8 @@ footer {
   color: #899e77;
 }
 .modal-backdrop {
+  /* Scrolling or swiping inside a dialog must not move the page or trigger back navigation. */
+  overscroll-behavior: contain;
   position: fixed;
   inset: 0;
   background: #0f281c66;
@@ -1026,6 +1028,7 @@ footer {
   max-width: 100%;
   max-height: 90vh;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 .modal-heading {
   display: flex;
@@ -3474,4 +3477,42 @@ body:has(.modal-backdrop) {
     flex: 1 1 160px;
     max-width: 280px;
   }
+}
+/* Ticket detail: free WhatsApp update (opens WhatsApp with the message typed in). */
+.whatsapp-update {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid #dde5dc;
+  border-radius: 10px;
+  background: #fbfcf9;
+}
+.whatsapp-update h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.whatsapp-update textarea {
+  font-family: inherit;
+  resize: vertical;
+}
+.whatsapp-button {
+  border-color: #25d366;
+  color: #128c4b;
+}
+.whatsapp-hint {
+  display: block;
+  margin-top: 8px;
+  color: #8b968e;
+  font-size: 11px;
+}
+.whatsapp-update + .modal-footer {
+  justify-content: space-between;
+}
+
+/* Stop the trackpad / touch horizontal swipe from navigating back and losing the open form. */
+html,
+body {
+  overscroll-behavior-x: none;
 }

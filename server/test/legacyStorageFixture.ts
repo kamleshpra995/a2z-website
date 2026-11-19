@@ -13,7 +13,6 @@ import { createState } from '../src/domain/state.ts';
 import { applyAction } from '../src/domain/actions.ts';
 import { seedAccounts, type ConfiguredAccount } from '../src/domain/bootstrap.ts';
 import {
-  register,
   createAdmin,
   login,
   getUser,
@@ -147,9 +146,6 @@ export function createStorage({
         mode,
         needsSetup: !state.users.some((u) => u.role === 'Admin' && u.passwordHash),
       };
-    },
-    async register(payload: Payload) {
-      return mutate(async (state) => ({ user: await register(state, payload) }));
     },
     async setup(payload: Payload) {
       return mutate(async (state) => ({ user: await createAdmin(state, payload) }));

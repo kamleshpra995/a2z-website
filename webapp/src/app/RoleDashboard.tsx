@@ -55,12 +55,7 @@ export default function RoleDashboard({
     ? [
         ['Add customer', 'Create client company details', () => open('client'), Building2],
         ['Add store', 'Link a location to a customer', () => open('store'), Store],
-        [
-          'Manage users',
-          'Approve accounts and add field workers',
-          () => navigate('Internal users'),
-          Users,
-        ],
+        ['Manage users', 'Add staff and customer logins', () => navigate('Internal users'), Users],
         [
           'Review invoices',
           'Update drafts from closed tickets',

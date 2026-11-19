@@ -22,3 +22,6 @@ preview*.log
 # Local-only folders
 Claude outputs/
 _to_delete/
+
+# Local notes (never commit)
+*.local.md

@@ -1,11 +1,10 @@
 import { readableTicket } from '../src/domain/conversations.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createState, loose } from './fixtures.ts';
+import { addAccount, createState, loose } from './fixtures.ts';
 import type { Actor, Client, Invoice, Notification, Store, Ticket } from '../src/shared/types.ts';
 import {
   createAdmin,
-  register,
   login,
   getUser,
   logout,
@@ -35,36 +34,59 @@ test('passwords hashed; login persists a hashed expiring session; logout revokes
     /already configured/,
   );
 });
-test('only Client/Supervisor may register; Admin approves before login', async () => {
+test('there is no self sign-up: only Admin creates logins, including customer logins', async () => {
   const s = createState();
   const admin = await createAdmin(s, account);
-  await assert.rejects(
-    () => register(s, { ...account, email: 'hack@test.com', role: 'Admin' }),
-    /Clients and Supervisors/,
-  );
-  const supervisor = await register(s, {
+  const supervisor = await addAccount(s, admin, {
     ...account,
     email: 'supervisor@test.com',
     role: 'Supervisor',
   });
-  await assert.rejects(() => login(s, { ...account, email: supervisor.email }), /approval/);
-  await authenticatedAction(s, admin, 'approve', { userId: supervisor.id }, applyAction);
   assert.equal((await login(s, { ...account, email: supervisor.email })).user.role, 'Supervisor');
   await assert.rejects(
-    () => register(s, { ...account, email: 'SUPERVISOR@test.com', role: 'Supervisor' }),
+    () => addAccount(s, admin, { ...account, email: 'SUPERVISOR@test.com', role: 'Supervisor' }),
     /already exists/,
+  );
+  await assert.rejects(
+    () => addAccount(s, admin, { ...account, email: 'admin2@test.com', role: 'Admin' }),
+    /Select a role/,
+  );
+  await assert.rejects(
+    () => addAccount(s, admin, { ...account, email: 'nocompany@test.com', role: 'Client' }),
+    /client company/,
+  );
+  const customer = await addAccount(s, admin, {
+    ...account,
+    email: 'customer@test.com',
+    role: 'Client',
+    company: 'Customer company',
+  });
+  assert.equal(
+    (await login(s, { ...account, email: customer.email })).user.clientId,
+    customer.clientId,
+  );
+  await assert.rejects(
+    () =>
+      authenticatedAction(
+        s,
+        loose<Actor>({ ...supervisor }),
+        'user',
+        { ...account, email: 'sneaky@test.com', role: 'Client', clientId: customer.clientId },
+        applyAction,
+      ),
+    /permission/,
   );
 });
 test('clients cannot read another client data or mutate other stores; supervisors cannot grant access', async () => {
   const s = createState();
   const admin = await createAdmin(s, account);
-  const c1 = await register(s, {
+  const c1 = await addAccount(s, admin, {
     ...account,
     email: 'c1@test.com',
     role: 'Client',
     company: 'Company 1',
   });
-  const c2 = await register(s, {
+  const c2 = await addAccount(s, admin, {
     ...account,
     email: 'c2@test.com',
     role: 'Client',
@@ -82,8 +104,6 @@ test('clients cannot read another client data or mutate other stores; supervisor
     manager: 'Manager',
     address: 'Address',
   });
-  await authenticatedAction(s, admin, 'approve', { userId: c1.id }, applyAction);
-  await authenticatedAction(s, admin, 'approve', { userId: c2.id }, applyAction);
   const user = (await login(s, { ...account, email: c1.email })).user;
   await authenticatedAction(
     s,
@@ -138,21 +158,58 @@ test('clients cannot read another client data or mutate other stores; supervisor
   );
   assert.equal(viewState(s, admin).tickets.length, 2);
 });
-test('existing company registration requires approval before exposing its records', async () => {
+test('a store login is limited to a store of its own client company', async () => {
   const s = createState();
   const admin = await createAdmin(s, account);
   const company = applyAction(s, 'client', { name: 'Existing company' });
-  const pending = await register(s, {
-    ...account,
-    email: 'new-client@test.com',
-    role: 'Client',
-    company: 'Existing company',
+  const other = applyAction(s, 'client', { name: 'Other company' });
+  const store = applyAction(s, 'store', {
+    clientId: company.id,
+    name: 'Branch',
+    manager: 'Manager',
+    address: 'Address',
   });
-  assert.equal(s.clients.length, 1);
-  assert.equal(pending.clientId, company.id);
-  await assert.rejects(() => login(s, { ...account, email: pending.email }), /approval/);
-  await authenticatedAction(s, admin, 'approve', { userId: pending.id }, applyAction);
-  assert.equal((await login(s, { ...account, email: pending.email })).user.clientId, company.id);
+  const otherStore = applyAction(s, 'store', {
+    clientId: other.id,
+    name: 'Other branch',
+    manager: 'Manager',
+    address: 'Address',
+  });
+  const base = { ...account, email: 'store@test.com', role: 'Client', clientId: company.id };
+  await assert.rejects(
+    () =>
+      authenticatedAction(
+        s,
+        admin,
+        'user',
+        { ...base, managedStoreId: otherStore.id },
+        applyAction,
+      ),
+    /store of this client/,
+  );
+  const manager = await authenticatedAction(
+    s,
+    admin,
+    'user',
+    { ...base, managedStoreId: store.id },
+    applyAction,
+  );
+  assert.equal(manager.managedStoreId, store.id);
+  const widened = await authenticatedAction(
+    s,
+    admin,
+    'user',
+    { ...base, id: manager.id, password: '' },
+    applyAction,
+  );
+  assert.equal(Object.hasOwn(widened, 'managedStoreId'), false);
+  assert.equal(
+    Object.hasOwn(
+      s.users.find((user) => user.id === manager.id)!,
+      'managedStoreId',
+    ),
+    false,
+  );
 });
 
 test('a store manager cannot view or act on another store of the same client', () => {

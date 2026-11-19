@@ -4,9 +4,9 @@ import { storeQrText } from '@shared/stores.ts';
 import type { Client } from '@shared/types.ts';
 import type { FormState } from '../types.ts';
 
-/** The QR on a store sticker opens the public complaint form at /app/?store=<id>. */
+/** The QR on a store sticker opens the public complaint form at /portal/?store=<id>. */
 export const storeTicketUrl = (storeId: string): string =>
-  `${(import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin).replace(/\/+$/, '')}/app/?store=${encodeURIComponent(storeId)}`;
+  `${(import.meta.env.VITE_PUBLIC_APP_URL || window.location.origin).replace(/\/+$/, '')}/portal/?store=${encodeURIComponent(storeId)}`;
 
 interface StoreQrPreviewProps {
   store: FormState;

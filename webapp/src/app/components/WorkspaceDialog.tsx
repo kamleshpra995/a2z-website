@@ -13,6 +13,7 @@ import type { Page } from '@shared/dashboard.ts';
 import type { FileUpload, PublicUser, WorkspaceView } from '@shared/types.ts';
 import StoreQrPreview from './StoreQrPreview.tsx';
 import TicketConversation from './TicketConversation.tsx';
+import WhatsAppUpdate from './WhatsAppUpdate.tsx';
 import StatusBadge from './StatusBadge.tsx';
 import type { Refresh } from '../hooks/useWorkspace.ts';
 import type { FormState, ModalType, NameLookup, OpenDialog } from '../types.ts';
@@ -35,6 +36,8 @@ const readDataUrl = (file: File): Promise<string> =>
 interface WorkspaceDialogProps {
   modal: ModalType | null;
   setModal: (modal: ModalType | null) => void;
+  /** Close by the user (X, Cancel, backdrop); asks first when typed input would be lost. */
+  requestClose: () => void;
   form: FormState;
   setForm: Dispatch<SetStateAction<FormState>>;
   error: string;
@@ -56,6 +59,7 @@ interface WorkspaceDialogProps {
 export default function WorkspaceDialog({
   modal,
   setModal,
+  requestClose,
   form,
   setForm,
   error,
@@ -75,6 +79,7 @@ export default function WorkspaceDialog({
 }: WorkspaceDialogProps) {
   const [showQr, setShowQr] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
+  const pressedBackdrop = useRef(false);
   useEffect(() => setShowQr(false), [modal, form.id]);
   useEffect(() => {
     if (showQr) qrRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -115,7 +120,7 @@ export default function WorkspaceDialog({
           setForm({
             ...form,
             [key]: e.target.value,
-            ...(key === 'clientId' ? { storeId: '' } : {}),
+            ...(key === 'clientId' ? { storeId: '', managedStoreId: null } : {}),
           } as FormState)
         }
       >
@@ -136,8 +141,15 @@ export default function WorkspaceDialog({
   return (
     <div
       className="modal-backdrop"
+      // Only the read-only QR preview closes from the backdrop, and only for a real click that
+      // started there: a swipe, scroll or text selection that ends outside must not close a form.
+      onPointerDown={(e) => {
+        pressedBackdrop.current = e.target === e.currentTarget;
+      }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) setModal(null);
+        if (modal === 'storeQr' && pressedBackdrop.current && e.target === e.currentTarget)
+          requestClose();
+        pressedBackdrop.current = false;
       }}
     >
       <section
@@ -147,7 +159,7 @@ export default function WorkspaceDialog({
         aria-labelledby="modal-title"
       >
         <div className="modal-heading">
-          <button className="icon-button" aria-label="Close dialog" onClick={() => setModal(null)}>
+          <button className="icon-button" aria-label="Close dialog" onClick={requestClose}>
             <X size={20} />
           </button>
         </div>
@@ -159,10 +171,12 @@ export default function WorkspaceDialog({
               store: form.id ? 'Edit store' : 'Add store',
               storeQr: 'Store details QR',
               user: form.id
-                ? 'Edit field worker'
+                ? form.role === 'Field Worker'
+                  ? 'Edit field worker'
+                  : 'Edit user'
                 : form.role === 'Field Worker'
                   ? 'Add field worker'
-                  : 'Add internal user',
+                  : 'Add user',
               ticket: 'New Ticket',
               assign: 'Assign field worker',
               close: 'Close ticket',
@@ -180,7 +194,10 @@ export default function WorkspaceDialog({
                 store: 'Choose a client, then add this store’s details.',
                 storeQr:
                   'Scan or download the QR to read this store’s contact and location details.',
-                user: 'Add a member of your internal team.',
+                user:
+                  form.role === 'Client'
+                    ? 'A login for a customer. It sees only its own company’s stores and tickets.'
+                    : 'Only people added here can sign in to the portal.',
                 ticket: 'Tell your team what needs attention.',
                 assign: 'The selected worker will receive an in-app notification.',
                 close: 'Closing this ticket will create one invoice draft.',
@@ -223,6 +240,21 @@ export default function WorkspaceDialog({
               <dt>Opened</dt>
               <dd>{new Date(form.createdAt ?? '').toLocaleString('en-IN')}</dd>
             </dl>
+            {['Admin', 'Supervisor', 'Field Worker'].includes(current.role) &&
+              (() => {
+                const ticket = data.tickets.find((item) => item.id === form.id);
+                return (
+                  ticket && (
+                    <WhatsAppUpdate
+                      ticket={ticket}
+                      store={data.stores.find((item) => item.id === ticket.storeId)}
+                      clientName={client(ticket.clientId)}
+                      worker={data.users.find((item) => item.id === ticket.workerId)}
+                      canMessageWorker={current.role !== 'Field Worker'}
+                    />
+                  )
+                );
+              })()}
             <div className="modal-footer">
               {form.status === 'Closed' ? (
                 <span className="info-note">Invoice draft created</span>
@@ -489,16 +521,49 @@ export default function WorkspaceDialog({
               <>
                 {field('Full name', 'name', true)}
                 {current.role === 'Supervisor' || form.id ? (
-                  <div className="info-note">Role: {form.role}</div>
+                  <div className="info-note">
+                    Role: {form.role === 'Client' ? 'Customer' : form.role}
+                  </div>
                 ) : (
-                  select(
-                    'Role',
-                    'role',
-                    ['Supervisor', 'Field Worker', 'Accounts'].map((role) => ({
-                      id: role,
-                      name: role,
-                    })),
-                  )
+                  select('Role', 'role', [
+                    { id: 'Supervisor', name: 'Supervisor' },
+                    { id: 'Field Worker', name: 'Field Worker' },
+                    { id: 'Accounts', name: 'Accounts' },
+                    { id: 'Client', name: 'Customer (client login)' },
+                  ])
+                )}
+                {form.role === 'Client' && (
+                  <>
+                    {select(
+                      'Client company',
+                      'clientId',
+                      data.clients.filter(
+                        (item) =>
+                          (!item.deletedAt && item.active !== false) || item.id === form.clientId,
+                      ),
+                    )}
+                    <label className="field">
+                      Store access
+                      <select
+                        value={form.managedStoreId || ''}
+                        onChange={(event) =>
+                          setForm((previous) => ({
+                            ...previous,
+                            managedStoreId: event.target.value || null,
+                          }))
+                        }
+                      >
+                        <option value="">All stores of this client</option>
+                        {data.stores
+                          .filter((item) => item.clientId === form.clientId && !item.deletedAt)
+                          .map((item) => (
+                            <option key={item.id} value={item.id}>
+                              Only {item.name}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </>
                 )}
                 {field('Email', 'email', true, 'email')}
                 {field('Phone', 'phone', false, 'tel')}
@@ -676,7 +741,7 @@ export default function WorkspaceDialog({
                   {showQr ? 'Hide QR' : 'View QR'}
                 </button>
               )}
-              <button type="button" className="outline" onClick={() => setModal(null)}>
+              <button type="button" className="outline" onClick={requestClose}>
                 Cancel
               </button>
               <button className="primary" disabled={busy}>

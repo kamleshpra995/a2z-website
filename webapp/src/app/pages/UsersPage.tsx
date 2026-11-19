@@ -1,5 +1,5 @@
 import { roleLabel } from '@shared/dashboard.ts';
-import type { WorkspaceView } from '@shared/types.ts';
+import type { ViewUser, WorkspaceView } from '@shared/types.ts';
 import RecordGrid from '../components/RecordGrid.tsx';
 import type { NameLookup, RunAction } from '../types.ts';
 
@@ -10,15 +10,24 @@ interface UsersPageProps {
   isAdmin: boolean;
   busy: boolean;
   action: RunAction;
+  edit: (account: ViewUser) => void;
 }
 
-export default function UsersPage({ data, client, store, isAdmin, busy, action }: UsersPageProps) {
+export default function UsersPage({
+  data,
+  client,
+  store,
+  isAdmin,
+  busy,
+  action,
+  edit,
+}: UsersPageProps) {
   return (
     <section className="section-card">
       <div className="section-heading">
         <div>
           <h2>
-            Internal users <span className="count">{data.users.length}</span>
+            Users &amp; logins <span className="count">{data.users.length}</span>
           </h2>
         </div>
       </div>
@@ -108,6 +117,15 @@ export default function UsersPage({ data, client, store, isAdmin, busy, action }
               renderCell: ({ row: account }) => (
                 <>
                   {' '}
+                  {isAdmin && account.role !== 'Admin' && (
+                    <button
+                      className="outline compact"
+                      disabled={busy}
+                      onClick={() => edit(account)}
+                    >
+                      Edit
+                    </button>
+                  )}{' '}
                   {isAdmin && account.accountStatus === 'Pending' && (
                     <button
                       className="outline compact"

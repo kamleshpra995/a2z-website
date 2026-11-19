@@ -52,13 +52,29 @@ export default defineConfig({
   resolve: { alias },
   server: {
     // The API runs separately (npm run dev -w server); the browser still sees one origin.
-    proxy: { '/api': 'http://127.0.0.1:4173' },
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:4173',
+        // If the API server is not running, answer with a clear message instead of a bare 500.
+        configure: (proxy) =>
+          proxy.on('error', (_error, _req, res) => {
+            if (!('writeHead' in res) || res.headersSent) return;
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(
+              JSON.stringify({
+                error:
+                  'The A2Z API server is not running. Check the [server] lines in the terminal where you ran npm run dev.',
+              }),
+            );
+          }),
+      },
+    },
   },
   build: {
     rollupOptions: {
       input: {
         website: fileURLToPath(new URL('index.html', import.meta.url)),
-        app: fileURLToPath(new URL('app/index.html', import.meta.url)),
+        portal: fileURLToPath(new URL('portal/index.html', import.meta.url)),
       },
     },
   },

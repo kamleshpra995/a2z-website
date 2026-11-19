@@ -2,9 +2,11 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { createAttachmentStore } from './storage/attachments.ts';
-import { connectWorkspaceStore } from './storage/database.ts';
+import { connectWorkspaceStore, type ConnectedStore } from './storage/database.ts';
 import { createAdmin } from './domain/auth.ts';
 import { createApiRouter } from './http/api.ts';
+import { ticketEmails } from './domain/ticketEmails.ts';
+import { createMailer } from './storage/mailer.ts';
 
 // 1. Load server-only environment values (server/.env) and connect to MongoDB when configured.
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -14,7 +16,19 @@ try {
   if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
 }
 const env = process.env;
-const store = await connectWorkspaceStore(env.MONGODB_URI, env.MONGODB_DB);
+// A connection failure must not crash the server: keep serving and explain the problem instead.
+let store: ConnectedStore = { available: false };
+let unavailableMessage = 'Database is not configured. Set MONGODB_URI in server/.env.';
+try {
+  store = await connectWorkspaceStore(env.MONGODB_URI, env.MONGODB_DB);
+} catch (error) {
+  unavailableMessage =
+    'Cannot reach MongoDB. Check MONGODB_URI in server/.env and that this computer’s IP address is allowed in Atlas Network Access.';
+  console.error(`MongoDB connection failed: ${(error as Error).message}\n${unavailableMessage}`);
+}
+// Ticket emails go out after each saved change, in the background, when SMTP is configured.
+const sendEmails = createMailer(env);
+const emailOptions = { portalUrl: env.PORTAL_URL, supportEmail: env.SUPPORT_EMAIL };
 const app = express();
 if (env.TRUST_PROXY === '1') app.set('trust proxy', 1);
 app.use(express.json({ limit: '4mb' }));
@@ -28,9 +42,13 @@ app.use(
         save: store.save,
         cookieSecure: env.COOKIE_SECURE === 'true',
         attachmentStore: createAttachmentStore(env.UPLOAD_DIR || path.join(root, 'uploads')),
+        onTicketEvents: sendEmails
+          ? (state, events) => void sendEmails(ticketEmails(state, events, emailOptions))
+          : undefined,
       })
     : createApiRouter({
         available: false,
+        unavailableMessage,
         load: () => Promise.reject(Error('Database is not configured.')),
         save: () => Promise.reject(Error('Database is not configured.')),
       }),
@@ -63,16 +81,20 @@ app.use((error: Error & { status?: number }, _req: Request, res: Response, _next
 });
 
 // 5. In production, serve the built webapp: the pre-rendered website at "/" and the
-//    dashboard single-page app under "/app/". In development, Vite serves the webapp.
+//    portal single-page app under "/portal/". In development, Vite serves the webapp.
 if (env.NODE_ENV === 'production') {
   const dist = path.resolve(env.WEBAPP_DIST || path.join(root, '..', 'webapp', 'dist'));
   app.use(express.static(dist));
-  app.get('/app/{*path}', (_req, res) => res.sendFile(path.join(dist, 'app', 'index.html')));
+  app.get('/portal/{*path}', (_req, res) => res.sendFile(path.join(dist, 'portal', 'index.html')));
+  // The portal used to live at /app/.
+  app.get(['/app', '/app/{*path}'], (req, res) =>
+    res.redirect(301, '/portal/' + (req.url.split('?')[1] ? '?' + req.url.split('?')[1] : '')),
+  );
 }
 
 const port = Number(env.PORT) || 4173;
 app.listen(port, env.HOST || '127.0.0.1', () =>
   console.log(
-    `A2Z server: http://127.0.0.1:${port} (${store.available ? 'MongoDB API ready' : 'API unavailable: set MONGODB_URI'}; authentication enabled)`,
+    `A2Z server: http://127.0.0.1:${port} (${store.available ? 'MongoDB API ready' : `API unavailable: ${unavailableMessage}`}; ticket emails ${sendEmails ? 'on' : 'off: set SMTP_HOST, SMTP_USER and SMTP_PASS'})`,
   ),
 );

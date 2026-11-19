@@ -1,4 +1,3 @@
-import { clientNameKey } from './clients.ts';
 import {
   applyConversationAction,
   isConversationAction,
@@ -77,52 +76,6 @@ export function validateAccount(
   if (state.users.some((u) => u.id !== excludeId && normalizeEmail(u.email) === email))
     throw Error('An account with this email already exists.');
   return email;
-}
-
-/** Register Client/Supervisor as Pending. Admin approval is needed before login. */
-export async function register(state: WorkspaceState, payload: Payload): Promise<PublicUser> {
-  if (payload.role !== 'Client' && payload.role !== 'Supervisor')
-    throw Error('Registration is available for Clients and Supervisors only.');
-  const email = validateAccount(state, payload);
-  const user: User = {
-    id: crypto.randomUUID(),
-    name: String(payload.name).trim(),
-    email,
-    phone: String(payload.phone || ''),
-    role: payload.role,
-    accountStatus: 'Pending',
-    createdAt: new Date().toISOString(),
-  };
-  await setPassword(user, payload.password);
-  if (payload.role === 'Client') {
-    const name = String(payload.company || '').trim();
-    if (!name) throw Error('Company name is required.');
-    const existing = state.clients.find((c) => clientNameKey(c.name) === clientNameKey(name));
-    const clientId = existing?.id || crypto.randomUUID();
-    user.clientId = clientId;
-    if (!existing)
-      state.clients.push({
-        id: clientId,
-        name,
-        contact: user.name,
-        email,
-        phone: user.phone,
-        address: '',
-      });
-  }
-  state.users.push(user);
-  for (const admin of state.users.filter(
-    (account) => account.role === 'Admin' && account.accountStatus === 'Active',
-  )) {
-    state.notifications.unshift({
-      id: crypto.randomUUID(),
-      userId: admin.id,
-      text: `New ${user.role === 'Client' ? 'Customer' : user.role} registration: ${user.name}. Review under Internal users.`,
-      read: false,
-      createdAt: new Date().toISOString(),
-    });
-  }
-  return safeUser(user);
 }
 
 export async function createAdmin(state: WorkspaceState, payload: Payload): Promise<PublicUser> {
@@ -377,33 +330,49 @@ export async function authenticatedAction(
     return safeUser(target);
   }
   if (type === 'user') {
-    if (!isInternalRole(payload.role)) throw Error('Select an internal role.');
+    // Accounts are created only by staff: Admin adds any non-Admin account (including Customer
+    // logins linked to a client company), a Supervisor adds Field Workers (see authorize()).
+    const role = payload.role;
+    const customer = role === 'Client';
+    if (!isInternalRole(role) && !customer) throw Error('Select a role.');
     const existing = payload.id
       ? state.users.find((account) => account.id === payload.id)
       : undefined;
     if (payload.id && !existing) throw Error('User not found.');
-    if (existing && !isInternalRole(existing.role))
-      throw Error('This account cannot be updated from the worker master.');
-    if (existing && existing.role !== payload.role)
+    if (existing && !isInternalRole(existing.role) && existing.role !== 'Client')
+      throw Error('This account cannot be updated here.');
+    if (existing && existing.role !== role)
       throw Error('Role changes are not available in this master.');
     const email = validateAccount(state, payload, existing?.id);
     const result: User = existing
       ? structuredClone(existing)
-      : {
-          id: crypto.randomUUID(),
-          name: '',
-          email: '',
-          role: payload.role,
-          accountStatus: 'Active',
-        };
+      : { id: crypto.randomUUID(), name: '', email: '', role, accountStatus: 'Active' };
     Object.assign(result, {
       name: String(payload.name).trim(),
       email,
       phone: String(payload.phone || ''),
     });
+    if (customer) {
+      const company = state.clients.find(
+        (client) => client.id === payload.clientId && !client.deletedAt,
+      );
+      if (!company) throw Error('Select the customer’s client company.');
+      result.clientId = company.id;
+      // A store login only sees that one store; without one the login sees every store.
+      if (payload.managedStoreId) {
+        const store = state.stores.find(
+          (item) =>
+            item.id === payload.managedStoreId && item.clientId === company.id && !item.deletedAt,
+        );
+        if (!store) throw Error('Select a store of this client, or leave the store empty.');
+        result.managedStoreId = store.id;
+      } else delete result.managedStoreId;
+    }
     if (!existing || payload.password) await setPassword(result, payload.password);
-    if (existing) Object.assign(existing, result);
-    else state.users.push(result);
+    if (existing) {
+      if (!Object.hasOwn(result, 'managedStoreId')) delete existing.managedStoreId;
+      Object.assign(existing, result);
+    } else state.users.push(result);
     return safeUser(result);
   }
   const previousTicket = state.tickets.find((ticket) => ticket.id === payload.ticketId);

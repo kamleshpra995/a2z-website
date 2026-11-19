@@ -10,6 +10,8 @@ export const business = {
   address: 'P-205, SG Grand, Raj Nagar Extension, Ghaziabad, UP 201017',
   gstin: '09ABUFA6623N1ZO',
   udyam: 'UDYAM-UP-29-0018661',
+  /** Service Desk login for customers, store managers and A2Z staff. */
+  portal: '/portal/',
   whatsapp: 'https://wa.me/917000010205?text=Hi%2C%20I%20need%20refrigeration%2FAC%20service.',
 };
 

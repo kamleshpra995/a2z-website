@@ -12,7 +12,8 @@ import { createApiRouter } from '../src/http/api.ts';
 import { createState } from './fixtures.ts';
 import { createAdmin } from '../src/domain/auth.ts';
 import type { AttachmentStore } from '../src/storage/attachments.ts';
-import type { Payload } from '../src/shared/types.ts';
+import type { Payload, WorkspaceState } from '../src/shared/types.ts';
+import type { TicketEvent } from '../src/domain/ticketEmails.ts';
 /** Parsed JSON response bodies: the tests check them field by field with assertions. */
 type Json = any;
 interface RequestOptions {
@@ -24,12 +25,16 @@ interface RequestOptions {
 interface ServeOptions {
   available?: boolean;
   attachmentStore?: AttachmentStore;
+  onTicketEvents?: (state: WorkspaceState, events: TicketEvent[]) => void;
 }
 /** The session cookie (name=value) from a login response. */
 const cookieOf = (response: { headers: Headers }): string =>
   (response.headers.get('set-cookie') ?? '').split(';')[0] ?? '';
 
-async function serve(t: TestContext, { available = true, attachmentStore }: ServeOptions = {}) {
+async function serve(
+  t: TestContext,
+  { available = true, attachmentStore, onTicketEvents }: ServeOptions = {},
+) {
   let state = createState();
   if (available)
     await createAdmin(state, {
@@ -44,6 +49,7 @@ async function serve(t: TestContext, { available = true, attachmentStore }: Serv
     createApiRouter({
       available,
       attachmentStore,
+      onTicketEvents,
       load: async () => structuredClone(state),
       save: async (value) => {
         state = structuredClone(value);
@@ -80,8 +86,8 @@ async function serve(t: TestContext, { available = true, attachmentStore }: Serv
   };
   return { request, base, snapshot: () => structuredClone(state) };
 }
-test('HTTP login, protected writes, approval, customer isolation and logout keep the same API contract', async (t) => {
-  const { request } = await serve(t);
+test('HTTP login, protected writes, admin-created customer isolation and logout keep the same API contract', async (t) => {
+  const { request, base } = await serve(t);
   assert.equal((await request('/api/state')).status, 401);
   const auth = await request('/api/auth/login', {
     body: { email: 'owner@test.com', password: 'api-test-password' },
@@ -97,29 +103,31 @@ test('HTTP login, protected writes, approval, customer isolation and logout keep
     body: { type: 'client', payload: { name: 'Private Admin Company' } },
   });
   assert.equal(company.status, 200);
-  const registered = await request('/api/auth/register', {
+  // There is no public sign-up; Admin creates the customer login for an existing client.
+  const signUp = await fetch(base + '/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Self', email: 'self@test.com', password: 'self-password-1' }),
+  });
+  assert.equal(signUp.status, 404);
+  const customerCompany = await request('/api/action', {
+    cookie: adminCookie,
+    body: { type: 'client', payload: { name: 'Customer Company' } },
+  });
+  const added = await request('/api/action', {
+    cookie: adminCookie,
     body: {
-      name: 'Customer',
-      email: 'customer@test.com',
-      password: 'customer-api-password',
-      role: 'Client',
-      company: 'Customer Company',
+      type: 'user',
+      payload: {
+        name: 'Customer',
+        email: 'customer@test.com',
+        password: 'customer-api-password',
+        role: 'Client',
+        clientId: customerCompany.body.result.id,
+      },
     },
   });
-  assert.equal(registered.status, 201);
-  const pendingLogin = await request('/api/auth/login', {
-    body: { email: 'customer@test.com', password: 'customer-api-password' },
-  });
-  assert.equal(pendingLogin.status, 400);
-  assert.equal(
-    (
-      await request('/api/action', {
-        cookie: adminCookie,
-        body: { type: 'approve', payload: { userId: registered.body.user.id } },
-      })
-    ).status,
-    200,
-  );
+  assert.equal(added.status, 200);
   const login = await request('/api/auth/login', {
     body: { email: 'customer@test.com', password: 'customer-api-password' },
   });
@@ -292,18 +300,22 @@ test('HTTP conversation and attachment routes persist references and require tic
   assert.match(downloaded.headers.get('content-disposition') ?? '', /attachment/);
   assert.equal(downloaded.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(await downloaded.text(), 'Visit report contents');
-  const outsider = await request('/api/auth/register', {
-    body: {
-      name: 'Other customer',
-      email: 'outsider@test.com',
-      password: 'outsider-password',
-      role: 'Client',
-      company: 'Other company',
-    },
+  const otherCompany = await request('/api/action', {
+    cookie,
+    body: { type: 'client', payload: { name: 'Other company' } },
   });
   await request('/api/action', {
     cookie,
-    body: { type: 'approve', payload: { userId: outsider.body.user.id } },
+    body: {
+      type: 'user',
+      payload: {
+        name: 'Other customer',
+        email: 'outsider@test.com',
+        password: 'outsider-password',
+        role: 'Client',
+        clientId: otherCompany.body.result.id,
+      },
+    },
   });
   const outsiderLogin = await request('/api/auth/login', {
     body: { email: 'outsider@test.com', password: 'outsider-password' },
@@ -393,7 +405,15 @@ test('HTTP Store Code verification is public, store-bound and rate limited; init
 });
 
 test('React API client completes master setup, confirmed status write, assignment, close and invoice across sessions', async (t) => {
-  const { base } = await serve(t);
+  const events: string[] = [];
+  const { base } = await serve(t, {
+    onTicketEvents: (state, list) =>
+      events.push(
+        ...list.map(
+          (event) => `${event.kind}:${state.tickets.find((x) => x.id === event.ticketId)?.status}`,
+        ),
+      ),
+  });
   let cookie: string | undefined;
   const api = createApiClient(async (path, options) => {
     const response = await fetch(base + path, {
@@ -441,6 +461,8 @@ test('React API client completes master setup, confirmed status write, assignmen
   const finished = await api.getState();
   assert.equal(finished.tickets[0].status, 'Closed');
   assert.equal(finished.invoices.length, 1);
+  // Emails are triggered once per saved ticket change, not for rejected or unrelated actions.
+  assert.deepEqual(events, ['created:Pending', 'assigned:Assigned', 'status:Closed']);
   await api.action('invoice', { id: finished.invoices[0].id, amount: 1000, description: 'Repair' });
   assert.equal((await api.getState()).invoices[0].amount, 1000);
   assert.ok(

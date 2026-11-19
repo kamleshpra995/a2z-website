@@ -54,7 +54,9 @@ export default function StoresPage({
           controls={
             <div className="list-bar store-list-bar">
               <span>
-                {clientFilter ? `Stores for ${client(clientFilter)}` : `${visible.length} stores`}
+                {clientFilter
+                  ? `Stores for ${client(clientFilter)}`
+                  : `${visible.length} ${visible.length === 1 ? 'store' : 'stores'}`}
                 {clientFilter && (
                   <button className="text-button" onClick={clearClientFilter}>
                     Show all stores

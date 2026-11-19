@@ -1,40 +1,31 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionRunner, createState } from './fixtures.ts';
-import {
-  createAdmin,
-  register,
-  login,
-  authenticatedAction,
-  viewState,
-} from '../src/domain/auth.ts';
-import { applyAction } from '../src/domain/actions.ts';
+import { actionRunner, addAccount, createState } from './fixtures.ts';
+import { createAdmin, login, viewState } from '../src/domain/auth.ts';
 const password = 'master-test-password';
 async function fixture() {
   const state = createState();
   const admin = await createAdmin(state, { name: 'Admin', email: 'admin@test.com', password });
-  const c1 = await register(state, {
+  const c1 = await addAccount(state, admin, {
     name: 'Customer 1',
     email: 'customer1@test.com',
     password,
     role: 'Client',
     company: 'Primary 1',
   });
-  const c2 = await register(state, {
+  const c2 = await addAccount(state, admin, {
     name: 'Customer 2',
     email: 'customer2@test.com',
     password,
     role: 'Client',
     company: 'Primary 2',
   });
-  const supervisor = await register(state, {
+  const supervisor = await addAccount(state, admin, {
     name: 'Supervisor',
     email: 'supervisor@test.com',
     password,
     role: 'Supervisor',
   });
-  for (const account of [c1, c2, supervisor])
-    await authenticatedAction(state, admin, 'approve', { userId: account.id }, applyAction);
   return {
     state,
     admin,

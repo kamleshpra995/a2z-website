@@ -120,11 +120,10 @@ export default function TicketConversation({
       setBusy(false);
     }
   }
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    let payload: Payload;
+  /** The message form as an action payload, or null (with an error shown) for invalid dates. */
+  function draftPayload(): Payload | null {
     try {
-      payload = {
+      return {
         ...draft,
         occurredAt: draft.occurredAt ? iso(draft.occurredAt) : null,
         nextFollowUpAt: draft.nextFollowUpAt ? iso(draft.nextFollowUpAt) : null,
@@ -132,13 +131,37 @@ export default function TicketConversation({
       };
     } catch {
       setError('Enter valid conversation and follow-up dates.');
-      return;
+      return null;
     }
-    if (await run(editing ? 'editComment' : 'comment', payload)) {
-      setDraft(initialDraft());
-      setPendingFiles([]);
-      setEditing(null);
+  }
+  function clearDraft() {
+    setDraft(initialDraft());
+    setPendingFiles([]);
+    setEditing(null);
+  }
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const payload = draftPayload();
+    if (payload && (await run(editing ? 'editComment' : 'comment', payload))) clearDraft();
+  }
+  /** Resolving locks the discussion, so an unsent note is posted first instead of being lost. */
+  async function resolve() {
+    const unsent = !editing && (draft.text.trim() || draft.attachmentIds.length);
+    if (unsent) {
+      const payload = draftPayload();
+      if (!payload) return;
+      setBusy(true);
+      setError('');
+      try {
+        await storage.action('comment', { ticketId, ...payload });
+        clearDraft();
+      } catch (error) {
+        setError((error as Error).message);
+        setBusy(false);
+        return;
+      }
     }
+    await run('resolve');
   }
   async function upload(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
@@ -285,12 +308,7 @@ export default function TicketConversation({
       )}
       <div className="ticket-review-actions">
         {permissions.canResolve && (
-          <button
-            type="button"
-            className="outline compact"
-            disabled={busy}
-            onClick={() => run('resolve')}
-          >
+          <button type="button" className="outline compact" disabled={busy} onClick={resolve}>
             Mark resolved
           </button>
         )}

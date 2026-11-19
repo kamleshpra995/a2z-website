@@ -1,83 +1,29 @@
-import { useState, type FormEvent, type HTMLInputTypeAttribute } from 'react';
-import { ShieldCheck, Ticket, Users, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { ShieldCheck, Ticket, Users, Eye, EyeOff } from 'lucide-react';
 import type { PublicUser, SessionInfo } from '@shared/types.ts';
 import { storage } from './storage.ts';
-import { asPayload } from './types.ts';
-
-type Screen = 'login' | 'register';
-interface AuthForm {
-  role?: 'Client' | 'Supervisor';
-  name?: string;
-  company?: string;
-  email?: string;
-  password?: string;
-}
 
 interface AuthProps {
   session: SessionInfo;
   onLogin: (user: PublicUser) => void;
 }
 
+/** Sign-in only. There is no self sign-up: the Admin creates every account in the portal. */
 export default function Auth({ session, onLogin }: AuthProps) {
-  const [screen, setScreen] = useState<Screen>('login'),
-    [form, setForm] = useState<AuthForm>({ role: 'Client' }),
-    [error, setError] = useState(''),
-    [message, setMessage] = useState(''),
-    [busy, setBusy] = useState(false),
-    [show, setShow] = useState(false);
-  const change = (next: Screen) => {
-    setScreen(next);
-    setForm({ role: 'Client' });
-    setError('');
-    setMessage('');
-  };
-  const field = (
-    label: string,
-    key: 'name' | 'company' | 'email' | 'password',
-    type: HTMLInputTypeAttribute = 'text',
-  ) => (
-    <label className="field">
-      {label}
-      <span> *</span>
-      <input
-        autoComplete={
-          key === 'email'
-            ? 'email'
-            : key === 'password'
-              ? screen === 'login'
-                ? 'current-password'
-                : 'new-password'
-              : key === 'name'
-                ? 'name'
-                : 'organization'
-        }
-        type={type}
-        required
-        minLength={key === 'password' && screen !== 'login' ? 10 : undefined}
-        maxLength={key === 'password' ? 128 : 200}
-        value={form[key] || ''}
-        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
-      />
-    </label>
-  );
-  // Registration waits for Admin approval; login returns the authenticated user to App.
-  async function submit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     setBusy(true);
     setError('');
-    setMessage('');
     try {
-      if (screen === 'register') {
-        await storage.register(asPayload(form));
-        setScreen('login');
-        setForm({ email: form.email });
-        setMessage('Registration submitted. Admin approval is required before you can log in.');
-      } else {
-        const result = await storage.login(asPayload(form));
-        onLogin(result.user);
-      }
-    } catch (e) {
-      setError((e as Error).message);
+      const result = await storage.login({ email, password });
+      onLogin(result.user);
+    } catch (caught) {
+      setError((caught as Error).message);
     } finally {
       setBusy(false);
     }
@@ -85,7 +31,7 @@ export default function Auth({ session, onLogin }: AuthProps) {
   return (
     <div className="auth-layout">
       <aside className="auth-story">
-        <a className="auth-brand" href="#">
+        <a className="auth-brand" href="/">
           A<span>2</span>Z <small>POWER SOLUTION / SERVICE DESK</small>
         </a>
         <div className="auth-story-content">
@@ -112,14 +58,14 @@ export default function Auth({ session, onLogin }: AuthProps) {
               <Users size={21} />
               <span>
                 Keep the right people connected
-                <small>Dedicated access for clients and supervisors.</small>
+                <small>Dedicated access for clients, supervisors and field teams.</small>
               </span>
             </div>
             <div>
               <ShieldCheck size={21} />
               <span>
                 Admin stays in control
-                <small>Registrations, team activity and ticket progress.</small>
+                <small>Accounts, team activity and ticket progress.</small>
               </span>
             </div>
           </div>
@@ -129,66 +75,37 @@ export default function Auth({ session, onLogin }: AuthProps) {
       <main className="auth-main">
         <div className="auth-card">
           <span className="eyebrow">WELCOME TO A2Z</span>
-          <h2>{screen === 'register' ? 'Create your account' : 'Welcome back'}</h2>
-          <p className="auth-subtitle">
-            {screen === 'register'
-              ? 'Register as a customer or supervisor to get started.'
-              : 'Sign in to manage your service workspace.'}
-          </p>
-          <div className="auth-tabs">
-            <button
-              className={screen === 'login' ? 'selected' : ''}
-              onClick={() => change('login')}
-            >
-              Login
-            </button>
-            <button
-              className={screen === 'register' ? 'selected' : ''}
-              onClick={() => change('register')}
-            >
-              Register
-            </button>
-          </div>
+          <h2>Welcome back</h2>
+          <p className="auth-subtitle">Sign in to manage your service workspace.</p>
           {error && (
             <div className="error" role="alert">
               {error}
             </div>
           )}
-          {message && (
-            <div className="info-note" role="status">
-              <CheckCircle2 size={20} />
-              {message}
-            </div>
-          )}
           <form onSubmit={submit}>
-            {screen === 'register' && (
-              <>
-                <label className="field">Register as</label>
-                <div className="role-options">
-                  {(['Client', 'Supervisor'] as const).map((role) => (
-                    <button
-                      type="button"
-                      key={role === 'Client' ? 'Customer' : role}
-                      className={form.role === role ? 'selected' : ''}
-                      onClick={() => setForm({ ...form, role })}
-                    >
-                      {role === 'Client' ? <Ticket size={18} /> : <Users size={18} />}
-                      <span>
-                        {role === 'Client' ? 'Customer' : role}
-                        <small>
-                          {role === 'Client' ? 'Your stores & requests' : 'Your service team'}
-                        </small>
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-            {screen !== 'login' && field('Full name', 'name')}
-            {screen === 'register' && form.role === 'Client' && field('Company name', 'company')}
-            {field('Email address', 'email', 'email')}
+            <label className="field">
+              Email address<span> *</span>
+              <input
+                type="email"
+                autoComplete="email"
+                required
+                maxLength={200}
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </label>
             <div className="password-field">
-              {field('Password', 'password', show ? 'text' : 'password')}
+              <label className="field">
+                Password<span> *</span>
+                <input
+                  type={show ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  required
+                  maxLength={128}
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                />
+              </label>
               <button
                 type="button"
                 className="icon-button"
@@ -198,20 +115,18 @@ export default function Auth({ session, onLogin }: AuthProps) {
                 {show ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
-            {screen !== 'login' && <p className="password-hint">Use 10–128 characters.</p>}
             <button className="primary auth-submit" disabled={busy}>
-              {busy ? 'Please wait…' : screen === 'register' ? 'Create account' : 'Sign in'}
+              {busy ? 'Please wait…' : 'Sign in'}
             </button>
           </form>
-          {screen === 'register' && (
-            <p className="auth-note">
-              <ShieldCheck size={15} />
-              New accounts require Admin approval.
-            </p>
-          )}
+          <p className="auth-note">
+            <ShieldCheck size={15} />
+            Accounts are created by A2Z. Need access? Contact your A2Z administrator.
+          </p>
           {session.needsSetup && (
             <div className="hint">
-              The workspace owner needs to configure the initial Admin account on the server.
+              No Super Admin exists yet. On the server, set ADMIN_EMAIL and ADMIN_PASSWORD in
+              server/.env and run: npm run admin:reset -w server
             </div>
           )}
           <div className="auth-mode">Database mode · server authentication</div>

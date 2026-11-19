@@ -43,7 +43,6 @@ export function createApiClient(request: Fetcher = (path, init) => globalThis.fe
     `/api/tickets/${encodeURIComponent(ticketId)}/attachments`;
   return {
     session: () => api<SessionInfo>('/api/auth/session'),
-    register: (payload: Payload) => post<{ user: PublicUser }>('/api/auth/register', payload),
     login: (payload: Payload) => post<{ user: PublicUser }>('/api/auth/login', payload),
     logout: () => post<{ ok: true }>('/api/auth/logout', {}),
     getState: () => api<WorkspaceView>('/api/state'),

@@ -60,6 +60,8 @@ export interface FormState {
   password?: string;
   accountStatus?: string;
   returnTicketId?: string;
+  /** Customer login limited to one store; empty means all stores of the client. */
+  managedStoreId?: string | null;
   // Ticket
   number?: string;
   storeId?: string;

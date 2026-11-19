@@ -173,7 +173,8 @@ export default function ClientsPage({
               renderCell: ({ row: client }) => (
                 <>
                   <button className="text-button" onClick={() => viewStores(client.id)}>
-                    {storeCounts.get(client.id) || 0} stores
+                    {storeCounts.get(client.id) || 0}{' '}
+                    {storeCounts.get(client.id) === 1 ? 'store' : 'stores'}
                   </button>
                 </>
               ),

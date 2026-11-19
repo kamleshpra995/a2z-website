@@ -1,0 +1,60 @@
+# Render Blueprint: one Node web service serves the website (/), the portal (/portal/) and the API
+# (/api). Data lives in MongoDB Atlas; ticket attachments live on the persistent disk below.
+# Secrets marked `sync: false` are entered in the Render dashboard when the Blueprint is created.
+# See docs/DEPLOY.md.
+services:
+  - type: web
+    name: a2z-power-solution
+    runtime: node
+    region: singapore
+    plan: starter
+    branch: restructure
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    disk:
+      name: uploads
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: '22'
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: COOKIE_SECURE
+        value: 'true'
+      - key: TRUST_PROXY
+        value: '1'
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      # Baked into the build: store QR codes always point at the live site.
+      - key: VITE_PUBLIC_APP_URL
+        value: https://www.a2zpowersolution.in
+      - key: PORTAL_URL
+        value: https://www.a2zpowersolution.in/portal/
+      - key: MONGODB_URI
+        sync: false
+      - key: MONGODB_DB
+        sync: false
+      # Used only if the database has no Admin yet.
+      - key: ADMIN_NAME
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Ticket emails (ZeptoMail). Leave SMTP_PASS empty to keep emails off.
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: '465'
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: MAIL_FROM
+        value: A2Z Power Solution <noreply@a2zpowersolution.in>
+      - key: SUPPORT_EMAIL
+        value: info@a2zpowersolution.in

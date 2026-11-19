@@ -133,9 +133,9 @@
   <body>
     <!--website-->
     <script>
-      // Old store QR codes pointed at /?store=<id>; the complaint form now lives in the app.
+      // Old store QR codes pointed at /?store=<id>; the complaint form now lives in the portal.
       if (new URLSearchParams(location.search).has('store'))
-        location.replace('/app/' + location.search);
+        location.replace('/portal/' + location.search);
       document.getElementById('yr').textContent = new Date().getFullYear();
       // Hide third-party images (stock photos, client logos) that fail to load.
       for (const img of document.querySelectorAll('img[data-hide-on-error]')) {
